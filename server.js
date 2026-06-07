@@ -33,9 +33,11 @@ const userSchema = new mongoose.Schema({
 const User = mongoose.model('User', userSchema);
 
 // ---------------------------------------------------------
-// REGISTRATION ROUTE (FIXED)
+// AUTHENTICATION ROUTES (ALIGNED WITH FRONTEND)
 // ---------------------------------------------------------
-app.post('/api/register', async (req, res) => {
+
+// 1. REGISTER
+app.post('/api/auth/register', async (req, res) => {
     try {
         const { fullName, whatsapp, email, username, password } = req.body;
 
@@ -45,9 +47,9 @@ app.post('/api/register', async (req, res) => {
         }
 
         // Check if user already exists
-        const existingUser = await User.findOne({ email });
+        const existingUser = await User.findOne({ $or: [{ email }, { username }] });
         if (existingUser) {
-            return res.status(409).json({ message: "Email already registered." });
+            return res.status(409).json({ message: "Email or Hacker Alias already registered." });
         }
 
         // Hash password
@@ -63,10 +65,13 @@ app.post('/api/register', async (req, res) => {
         });
 
         await newUser.save();
-        res.status(201).json({ message: "Registration successful!" });
+        
+        // Generate secure token for instant login
+        const token = jwt.sign({ userId: newUser._id, username: newUser.username }, JWT_SECRET, { expiresIn: '7d' });
+
+        res.status(201).json({ message: "Registration successful!", token });
 
     } catch (error) {
-        // This will print the actual error to your Render Logs
         console.error("Registration Error:", error);
         res.status(500).json({ 
             message: "Internal Server Error", 
@@ -75,7 +80,38 @@ app.post('/api/register', async (req, res) => {
     }
 });
 
-// ... (Keep your existing Order/Mission routes here)
+// 2. LOGIN
+app.post('/api/auth/login', async (req, res) => {
+    try {
+        const { username, password } = req.body;
+
+        // Find user by either email or username
+        const user = await User.findOne({ 
+            $or: [{ email: username }, { username: username }] 
+        });
+
+        if (!user) {
+            return res.status(400).json({ message: "Invalid Hacker Alias or Passcode." });
+        }
+
+        // Compare passwords
+        const isMatch = await bcrypt.compare(password, user.password);
+        if (!isMatch) {
+            return res.status(400).json({ message: "Invalid Hacker Alias or Passcode." });
+        }
+
+        // Generate secure token
+        const token = jwt.sign({ userId: user._id, username: user.username }, JWT_SECRET, { expiresIn: '7d' });
+
+        res.json({ message: "Authentication Valid", token });
+
+    } catch (error) {
+        console.error("Login Error:", error);
+        res.status(500).json({ message: "Internal Server Error", error: error.message });
+    }
+});
+
+// ... (Keep your existing Order/Mission routes here if you have them, otherwise just leave this)
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
